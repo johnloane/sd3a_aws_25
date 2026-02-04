@@ -13,14 +13,17 @@ import requests
 from functools import wraps
 import sys
 
-from . import my_db
+
+load_dotenv("/var/www/FlaskApp/FlaskApp/.env")
+from . import my_db, pb_am
 
 
 #codespecialist.com https://www.youtube.com/watch?v=FKgJEfrhU1E
 
-load_dotenv("/var/www/FlaskApp/FlaskApp/.env")
+
 db = my_db.db
 app = Flask(__name__)
+app.secret_key = os.getenv("APP_SECRET_KEY")
 
 app.config["SQLALCHEMY_DATABASE_URI"] = os.getenv("SQLALCHEMY_DATABASE_URI")
 print(os.getenv("SQLALCHEMY_DATABASE_URI"))
@@ -46,11 +49,12 @@ alive = 0
 data = {}
 
 def login_is_required(function):
+    @wraps(function)
     def wrapper(*args, **kwargs):
         if "google_id" not in session:
             return abort(401)
         else:
-            return function()
+            return function(*args, **kwargs)
     return wrapper
 
 
@@ -65,8 +69,8 @@ def login():
 def callback():
     flow.fetch_token(authorization_response = request.url)
     
-    if not session["state"] == request.args["state"]:
-        abort(500)
+    # if not session["state"] == request.args["state"]:
+    #     abort(500)
     
     credentials = flow.credentials
     request_session = requests.session()
@@ -109,6 +113,58 @@ def keep_alive():
     parsed_json = json.dumps(data)
     return str(parsed_json)
 
+@app.route('/grant-<user_id>-<read>-<write>', methods=["POST"])
+@login_is_required
+def grant_access(user_id, read, write):
+    is_admin = my_db.is_admin(user_id)
+    print(f"Admin??? {is_admin}")
+    if is_admin == 1:
+        print(f"Admin granting {user_id}-{read}-{write}")
+        my_db.add_user_permission(user_id, read, write)
+        if read == "true" and write == "true":
+            token = pb_am.grant_read_and_write_access(user_id)
+            #print("Parsing token")
+            #pb_am.parse_token(token)
+            my_db.add_token(user_id, token)
+            access_response={'token':token, 'cipher_key':pb_am.cipher_key, 'uuid':user_id}
+            return json.dumps(access_response)
+        elif read == "true" and write == "false":
+            token = pb_am.grant_read_access(user_id)
+            my_db.add_token(user_id, token)
+            access_response={'token':token, 'cipher_key':pb_am.cipher_key, 'uuid':user_id}
+            return json.dumps(access_response)
+        elif read == "false" and write == "true":
+            token = pb_am.grant_write_access(user_id)
+            my_db.add_token(user_id, token)
+            access_response={'token':token, 'cipher_key':pb_am.cipher_key, 'uuid':user_id}
+            return json.dumps(access_response)
+    else:
+         print(f"Non admin attempting to grant privileges {user_id}-{read}-{write}")
+         my_db.add_user_permission(user_id, read, write)
+         token = get_user_token(user_id)
+         access_response={'token':token, 'cipher_key':pb_am.cipher_key, 'uuid':user_id}
+         return json.dumps(access_response)
+    
+            
+@app.route("/get_user_token", methods=['POST'])
+def get_user_token():
+    user_id = session['google_id']
+    token = my_db.get_token(user_id)
+    if token is not None:
+        token = get_or_refresh_token(token)
+        token_response = {'token':token, 'cipher_key':pb_am.cipher_key, 'uuid':user_id}
+    else:
+        token_response = {'token':123, 'cipher_key':'123', 'uuid':'123'}
+    return json.dumps(token_response)
+
+def get_or_refresh_token(token):
+    timestamp, ttl, uuid, read, write = pb_am.parse_token(token)
+    current_time = time.time()
+    if timestamp + (ttl*60)-current_time > 0:
+        return token
+    else:
+        #The token has expired, they have a token, get them a new token
+        return grant_access(uuid, read, write)
 
 if __name__ == "__main__":
     app.run()

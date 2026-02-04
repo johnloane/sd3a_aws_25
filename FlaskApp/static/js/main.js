@@ -2,7 +2,7 @@ let aliveSecond = 0;
 let heartBeatRate = 5000;
 let pubnub;
 // Channel must match that in the pubub_sensors.py code on the pi
-let appChannel = "johns-pi-0";
+let appChannel = "sd3a_iot_channel";
 
 function time() {
   let d = new Date();
@@ -41,9 +41,9 @@ function handleClick(cb) {
 
 const setupPubNub = () => {
   pubnub = new PubNub({
-    publishKey: "your_pub_key",
-    subscribeKey: "your_sub_key",
-    userId: "web-user-" + Math.floor(Math.random() * 1000),
+    publishKey: "pub-c-1bbfa82c-946c-4344-8007-85d2c1061101",
+    subscribeKey: "sub-c-88506320-2127-11eb-90e0-26982d4915be",
+    userId: "John",
   });
 
   const channel = pubnub.channel(appChannel);
@@ -60,6 +60,7 @@ const setupPubNub = () => {
     handleMessage(messageEvent.message);
   };
   subscription.subscribe();
+  sendEvent("get_user_token");
 };
 
 const publishMessage = async (message) => {
@@ -79,6 +80,24 @@ function handleMessage(message) {
   }
 }
 
+function sendEvent(value) {
+  fetch(value, {
+    method: "POST",
+  })
+    .then((response) => response.json())
+    .then((responseJson) => {
+      console.log(responseJson);
+      if (responseJson.hasOwnProperty("token")) {
+        pbToken = responseJson.token;
+        pubnub.setToken(pbToken);
+        console.log("Cipher key: " + responseJson.cipher_key);
+        pubnub.setCipherKey(responseJson.cipher_key);
+        pubnub.setUUID(responseJson.uuid);
+        subscribe();
+      }
+    });
+}
+
 function grantAccess(ab) {
   let userId = ab.id.split("-")[2];
   let readState = document.getElementById("read-user-" + userId).checked;
@@ -89,4 +108,11 @@ function grantAccess(ab) {
 
 function logout() {
   location.replace("/logout");
+}
+
+function subscribe() {
+  console.log("Trying to subscribe with a token");
+  const channel = pubnub.channel(appChannel);
+  const subscription = channel.subscription();
+  subscription.subscribe();
 }

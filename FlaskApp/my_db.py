@@ -46,7 +46,7 @@ def add_user_and_login(name, user_id):
         row.login = 1
         db.session.commit()
     else:
-        new_user = User(name, user_id, None, 1, 0, 0)
+        new_user = User(name, user_id, None, 1, 0, 0, 0)
         db.session.add(new_user)
         db.session.commit()
             
